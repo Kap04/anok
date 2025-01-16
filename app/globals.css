@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+ 
+@layer base {
+  :root {
+    --background: 0 0% 0%;
+    --foreground: 0 0% 100%;
+
+    --card: 215 50% 23%;
+    --card-foreground: 0 0% 100%;
+ 
+    --popover: 0 0% 0%;
+    --popover-foreground: 0 0% 100%;
+ 
+    --primary: 215 50% 23%;
+    --primary-foreground: 0 0% 100%;
+ 
+    --secondary: 186 75% 43%;
+    --secondary-foreground: 0 0% 100%;
+ 
+    --muted: 215 50% 23%;
+    --muted-foreground: 215 20% 65%;
+ 
+    --accent: 186 75% 43%;
+    --accent-foreground: 0 0% 100%;
+ 
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 215 50% 23%;
+    --input: 215 50% 23%;
+    --ring: 186 75% 43%;
+ 
+    --radius: 0.5rem;
+  }
+}
+ 
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+.gradient-bg {
+  background: linear-gradient(135deg, #000000 0%, #1a2942 50%, #2d7a8c 100%);
+  background-size: 200% 200%;
+  animation: gradientShift 15s ease infinite;
+}
+
+@keyframes gradientShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.text-gradient {
+  background: linear-gradient(to right, #ffffff, #2d7a8c);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
