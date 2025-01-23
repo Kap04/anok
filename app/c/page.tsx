@@ -1,4 +1,4 @@
-//app/c/page.tsx
+//app/c/page.tsx  ( chat page ) 
 
 "use client"
 
@@ -6,15 +6,14 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { SendHorizontal, Bot, User, Plus } from 'lucide-react';
+import { SendHorizontal, Bot, User } from 'lucide-react';
 import { useUser } from "@clerk/nextjs";
 import { supabase } from '@/lib/supabase';
-
-
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-
-
+import { ChatControlSidebar } from '@/components/ChatControlSidebar';
+import { ChatSidebar } from '@/components/ChatSessionSidebar';
+import { LeftSidebarProvider, RightSidebarProvider } from '@/components/ui/sidebar-provider';
 
 
 interface ChatMessage {
@@ -39,6 +38,13 @@ const ChatInterface: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const { user } = useUser();
 
+
+  const [knowledgeBaseUrl, setKnowledgeBaseUrl] = useState('');
+  const [selectedModel, setSelectedModel] = useState('mistral-tiny');
+  const [temperature, setTemperature] = useState(0.7);
+  const [systemPrompt, setSystemPrompt] = useState('');
+
+  const [lastRequestTime, setLastRequestTime] = useState<number>(0);
 
   // Sync Clerk user with Supabase
   useEffect(() => {
@@ -177,46 +183,87 @@ const ChatInterface: React.FC = () => {
     }
   };
 
+  const deleteSession = async (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering the session selection
+    if (!user?.id || !confirm('Are you sure you want to delete this chat?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('chat_sessions')
+        .delete()
+        .eq('id', sessionId);
+
+      if (error) throw error;
+
+      // Update local state
+      setSessions(prev => prev.filter(session => session.id !== sessionId));
+
+      // If the deleted session was the current session, switch to the most recent one
+      if (currentSession === sessionId) {
+        const remainingSessions = sessions.filter(session => session.id !== sessionId);
+        setCurrentSession(remainingSessions.length > 0 ? remainingSessions[0].id : null);
+        setChatHistory([]);
+      }
+    } catch (error) {
+      console.error('Error deleting session:', error);
+      alert('Failed to delete chat session');
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || !currentSession || !user?.id) return;
-
+  
+    const userMessage = input.trim();
     setIsLoading(true);
+    setInput('');
+  
     try {
+      const requestBody = {
+        message: userMessage,
+        sessionId: currentSession,
+        model: selectedModel || 'mistral-tiny',
+        temperature: temperature ?? 0.7,
+        ...(systemPrompt?.trim() && { systemPrompt }),
+      };
+  
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: input,
-          sessionId: currentSession
-        }),
+        body: JSON.stringify(requestBody),
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to send message');
-      }
-
+  
+      const tempChatId = crypto.randomUUID();
       const newChat = {
-        id: crypto.randomUUID(),
+        id: tempChatId,
         session_id: currentSession,
-        user_message: input,
-        ai_response: data.ai_response,
+        user_message: userMessage,
+        ai_response: '',
         timestamp: new Date().toISOString()
       };
-
+  
       setChatHistory(prev => [newChat, ...prev]);
-      setInput('');
+  
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let fullResponse = '';
+      while (true) {
+        const result = await reader?.read();
+        if (!result) break;
+        const { done, value } = result;
+        if (done) break;
 
-      setTimeout(() => {
-        const chatContainer = document.querySelector('.scroll-area-viewport');
-        if (chatContainer) {
-          chatContainer.scrollTop = chatContainer.scrollHeight;
-        }
-      }, 100);
-
+        const chunk = decoder.decode(value);
+        fullResponse += chunk;
+  
+        setChatHistory(prev => 
+          prev.map(chat => 
+            chat.id === tempChatId 
+              ? { ...chat, ai_response: fullResponse } 
+              : chat
+          )
+        );
+      }
     } catch (error) {
       console.error('Error:', error);
       alert(error instanceof Error ? error.message : 'Failed to send message');
@@ -225,133 +272,123 @@ const ChatInterface: React.FC = () => {
     }
   };
 
-  // Rest of your JSX remains the same
+
+
+
+
   return (
-    <div className="min-h-screen gradient-bg grid grid-cols-8">
-      {/* Left Sidebar */}
-      <div className="col-span-2 border-r border-[#2d7a8c]/30 bg-black/30 p-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="text-white font-semibold">Chats</div>
-          <Button
-            onClick={createNewSession}
-            variant="outline"
-            size="sm"
-            className="border-[#2d7a8c]"
-          >
-            <Plus className="w-4 h-4" />
-          </Button>
-        </div>
-        <ScrollArea className="h-[calc(100vh-8rem)]">
-          {sessions.map((session) => (
-            <div
-              key={session.id}
-              onClick={() => setCurrentSession(session.id)}
-              className={`p-3 rounded-lg mb-2 cursor-pointer ${currentSession === session.id
-                  ? 'bg-[#2d7a8c] text-white'
-                  : 'bg-[#1a2942] text-gray-300 hover:bg-[#2d7a8c]/50'
-                }`}
-            >
-              {session.title}
-            </div>
-          ))}
-        </ScrollArea>
-      </div>
+    <LeftSidebarProvider>
+      <RightSidebarProvider>
+        <div className="min-h-screen gradient-bg flex justify-center">
+          <ChatSidebar
+            sessions={sessions}
+            currentSession={currentSession}
+            setCurrentSession={setCurrentSession}
+            createNewSession={createNewSession}
+            deleteSession={deleteSession}
+          />
 
-      {/* Chat Section */}
-      <div className="col-span-4 bg-black/20 h-screen overflow-hidden">
-  <div className="h-full flex flex-col bg-black/30 backdrop-blur-md rounded-lg border border-[#2d7a8c]/30">
-    <div className="flex-1 p-6 flex flex-col overflow-hidden">
-      <ScrollArea className="flex-1 -mr-6 pr-6">
-        <div className="space-y-4">
-          {chatHistory.map((chat) => (
-            <div key={chat.id} className="space-y-2 max-w-full">
-              {/* User Message */}
-              <div className="flex items-start gap-2">
-                <User className="w-6 h-6 mt-1 text-[#2d7a8c] flex-shrink-0" />
-                <div className="flex-1 bg-[#1a2942] rounded-lg p-3 text-white min-w-0">
-                  <div className="break-words">{chat.user_message}</div>
+          <main className="w-3/5 h-screen">
+            <div className="h-full flex flex-col bg-transparent backdrop-blur-md rounded-lg ">
+              <ScrollArea className="flex-1 p-4">{/* Chat history content */}
+                <div className="space-y-4">
+                  {chatHistory.slice().reverse().map((chat) => (
+                    <div key={chat.id} className="space-y-2 max-w-full">
+                      {/* User Message */}
+                      <div className="flex items-start gap-2">
+                        <User className="w-6 h-6 mt-1 text-[#2d7a8c] flex-shrink-0" />
+                        <div className="flex-1 bg-[#1a2942] rounded-lg p-3 text-white break-words min-w-0">
+                          <div className="break-words">{chat.user_message}</div>
+                        </div>
+                      </div>
+
+                      {/* AI Response */}
+                      <div className="flex items-start gap-2">
+                        <Bot className="w-6 h-6 mt-1 text-[#2d7a8c] flex-shrink-0" />
+                        <div className="flex-1 bg-[#1a2942] rounded-lg p-3 break-words text-white min-w-0">
+                          <div className="prose prose-invert max-w-none">
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              components={{
+                                code: ({ node, inline, className, children, ...props }) => {
+                                  const match = /language-(\w+)/.exec(className || '');
+                                  const codeContent = String(children).trim();
+                                  const isMultiLine = codeContent.includes('\n');
+
+                                  return !inline && isMultiLine ? (
+                                    <div className="bg-gray-950 border-black border rounded-md">
+                                      <div className="flex text-gray-200 bg-gray-950 border-b border-zinc-600 px-4 py-2 text-xs font-sans justify-between rounded-t-md">
+                                        <span>{match && match[1] ? match[1] : 'code'}</span>
+                                        <button
+                                          onClick={() => navigator.clipboard.writeText(codeContent)}
+                                          className="hover:text-gray-100"
+                                        >
+                                          Copy code
+                                        </button>
+                                      </div>
+                                      <div className="overflow-x-auto">
+                                        <pre className="p-4 text-zinc-300">
+                                          <code className={className} {...props}>
+                                            {children}
+                                          </code>
+                                        </pre>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <code className="font-semibold text-white rounded px-1 py-0.5" {...props}>
+                                      {children}
+                                    </code>
+                                  );
+                                },
+                              }}
+                            >
+                              {chat.ai_response}
+                            </ReactMarkdown>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
+              </ScrollArea>
 
-              {/* AI Response */}
-              <div className="flex items-start gap-2">
-                <Bot className="w-6 h-6 mt-1 text-[#2d7a8c] flex-shrink-0" />
-                <div className="flex-1 bg-[#1a2942] rounded-lg p-3 text-white min-w-0">
-                  <div className="prose prose-invert max-w-none">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        code: ({ node, inline, className, children, ...props }) => {
-                          const match = /language-(\w+)/.exec(className || '');
-                          const codeContent = String(children).trim();
-                          const isMultiLine = codeContent.includes('\n');
-
-                          return !inline && isMultiLine ? (
-                            <div className="bg-gray-950 border-black border rounded-md">
-                              <div className="flex text-gray-200 bg-gray-950 border-b border-zinc-600 px-4 py-2 text-xs font-sans justify-between rounded-t-md">
-                                <span>{match && match[1] ? match[1] : 'code'}</span>
-                                <button
-                                  onClick={() => navigator.clipboard.writeText(codeContent)}
-                                  className="hover:text-gray-100"
-                                >
-                                  Copy code
-                                </button>
-                              </div>
-                              <div className="overflow-x-auto">
-                                <pre className="p-4 text-zinc-300">
-                                  <code className={className} {...props}>
-                                    {children}
-                                  </code>
-                                </pre>
-                              </div>
-                            </div>
-                          ) : (
-                            <code className="font-semibold text-white rounded px-1 py-0.5" {...props}>
-                              {children}
-                            </code>
-                          );
-                        },
-                      }}
-                    >
-                      {chat.ai_response}
-                    </ReactMarkdown>
-                  </div>
-                </div>
+              <div className="p-4 border-t border-[#2d7a8c]/30">
+                <form onSubmit={handleSubmit} className="flex gap-2">
+                  <Input
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder="Ask your coding question..."
+                    className="flex-1 bg-[#1a2942] text-white border-[#2d7a8c] placeholder-gray-400"
+                    disabled={isLoading || !currentSession}
+                  />
+                  <Button
+                    type="submit"
+                    disabled={isLoading || !currentSession}
+                    className="bg-[#2d7a8c] text-white hover:bg-[#1a2942]"
+                  >
+                    <SendHorizontal className="w-4 h-4 mr-2" />
+                    Send
+                  </Button>
+                </form>
               </div>
             </div>
-          ))}
+          </main>
+
+          <ChatControlSidebar
+            knowledgeBaseUrl={knowledgeBaseUrl}
+            setKnowledgeBaseUrl={setKnowledgeBaseUrl}
+            selectedModel={selectedModel}
+            setSelectedModel={setSelectedModel}
+            temperature={temperature}
+            setTemperature={setTemperature}
+            systemPrompt={systemPrompt}
+            setSystemPrompt={setSystemPrompt}
+            sessionId={currentSession}
+          />
         </div>
-      </ScrollArea>
+      </RightSidebarProvider>
+    </LeftSidebarProvider>
+  )
+}
 
-      {/* Input Form */}
-      <form onSubmit={handleSubmit} className="mt-4 flex gap-2">
-        <Input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask your coding question..."
-          className="flex-1 bg-[#1a2942] text-white border-[#2d7a8c] placeholder-gray-400"
-          disabled={isLoading || !currentSession}
-        />
-        <Button
-          type="submit"
-          disabled={isLoading || !currentSession}
-          className="bg-[#2d7a8c] text-white hover:bg-[#1a2942]"
-        >
-          <SendHorizontal className="w-4 h-4 mr-2" />
-          Send
-        </Button>
-      </form>
-    </div>
-  </div>
-</div>
-
-      {/* Right Sidebar */}
-      <div className="col-span-2 border-l border-[#2d7a8c]/30 bg-black/30 p-4">
-        {/* Right panel content */}
-      </div>
-    </div>
-  );
-
-};
-
-export default ChatInterface;
+export default ChatInterface
