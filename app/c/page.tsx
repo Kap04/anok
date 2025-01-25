@@ -213,11 +213,11 @@ const ChatInterface: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || !currentSession || !user?.id) return;
-  
+
     const userMessage = input.trim();
     setIsLoading(true);
     setInput('');
-  
+
     try {
       const requestBody = {
         message: userMessage,
@@ -225,14 +225,18 @@ const ChatInterface: React.FC = () => {
         model: selectedModel || 'mistral-tiny',
         temperature: temperature ?? 0.7,
         ...(systemPrompt?.trim() && { systemPrompt }),
+        
       };
-  
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
       });
-  
+
+      console.log('Request Body:', requestBody);
+      console.log('Response:', response);
+
       const tempChatId = crypto.randomUUID();
       const newChat = {
         id: tempChatId,
@@ -241,9 +245,9 @@ const ChatInterface: React.FC = () => {
         ai_response: '',
         timestamp: new Date().toISOString()
       };
-  
+
       setChatHistory(prev => [newChat, ...prev]);
-  
+
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let fullResponse = '';
@@ -255,11 +259,11 @@ const ChatInterface: React.FC = () => {
 
         const chunk = decoder.decode(value);
         fullResponse += chunk;
-  
-        setChatHistory(prev => 
-          prev.map(chat => 
-            chat.id === tempChatId 
-              ? { ...chat, ai_response: fullResponse } 
+
+        setChatHistory(prev =>
+          prev.map(chat =>
+            chat.id === tempChatId
+              ? { ...chat, ai_response: fullResponse }
               : chat
           )
         );
